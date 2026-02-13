@@ -1,4 +1,4 @@
-#include "FileFollower.hpp"
+#include "file/FileFollower.hpp"
 
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -260,6 +260,25 @@ bool FileFollower::maybe_switch_to_pending(PollResult &out) {
 
   out.switched = true;
   out.message = "switched to rotated file";
+  return true;
+}
+
+bool FileFollower::set_position(std::uint64_t offset,
+                                std::uint64_t generation) {
+  if (fd_ < 0)
+    return false;
+
+  PollResult out;
+  generation_ = generation;
+  read_offset_ = offset;
+
+  if (!seek_to(offset, out)) {
+    return false;
+  }
+
+  // Reset EOF tracking because we changed the cursor.
+  last_read_was_eof_ = false;
+  rotation_pending_ = false;
   return true;
 }
 
