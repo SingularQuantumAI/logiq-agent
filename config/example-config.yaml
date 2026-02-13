@@ -1,0 +1,5 @@
+# LogIQ Agent minimal config
+
+logging.level: debug
+input.path: logs.log
+checkpoint.path: checkpoint.json
