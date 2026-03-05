@@ -178,6 +178,28 @@ void Agent::run_once() {
                     committed_offset_);
   }
   if (poll.truncated || poll.switched) {
+    // Flush any buffered records that belong to the *old* file state before
+    // resetting the batcher. Without this, those records would be silently
+    // dropped when batcher_.reset() discards the current batch.
+    if (auto b = batcher_.maybe_flush(true)) {
+      b->batch_id = next_batch_id();
+      auto result = sink_.send(*b);
+
+      if (result.ok) {
+        const auto cur_id = follower_.active_id();
+        const auto cur_gen = follower_.generation();
+
+        if (b->file_dev == cur_id.dev && b->file_ino == cur_id.ino &&
+            b->file_generation == cur_gen) {
+          committed_offset_ = std::max(committed_offset_, b->commit_end_offset);
+          committed_generation_ = cur_gen;
+          save_checkpoint(cur_id, committed_generation_, committed_offset_);
+        }
+      } else {
+        retry_.enqueue(std::move(*b), result.message);
+      }
+    }
+
     batcher_.reset(follower_.active_id(), follower_.generation());
   }
 
