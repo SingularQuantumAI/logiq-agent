@@ -10,6 +10,8 @@
 #include "core/Agent.hpp"
 #include "utils/Logger.hpp"
 
+#include <curl/curl.h>
+
 namespace {
 
 std::atomic<bool> g_running{true};
@@ -45,6 +47,11 @@ static logiq::utils::LogLevel parse_level(const std::string &s) {
 
 int main(int argc, char *argv[]) {
   try {
+    // ---------------------------------------------------------
+    // 0. Initialize global state (cURL)
+    // ---------------------------------------------------------
+    curl_global_init(CURL_GLOBAL_DEFAULT);
+
     // ---------------------------------------------------------
     // 1. Install signal handlers for graceful shutdown
     // ---------------------------------------------------------
@@ -100,6 +107,8 @@ int main(int argc, char *argv[]) {
     agent->shutdown();
 
     logiq::utils::Logger::info("Shutdown complete.");
+
+    curl_global_cleanup();
 
     return EXIT_SUCCESS;
 
