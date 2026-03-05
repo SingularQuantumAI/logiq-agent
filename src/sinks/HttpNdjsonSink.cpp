@@ -127,6 +127,7 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
 
   // Good defaults
   curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 
   const CURLcode rc = curl_easy_perform(curl);
   if (rc == CURLE_OK) {
