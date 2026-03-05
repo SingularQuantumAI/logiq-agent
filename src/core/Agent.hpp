@@ -33,6 +33,10 @@ private:
 
   std::uint64_t committed_offset_{0};
   std::uint64_t committed_generation_{0};
+
+private:
+  void save_checkpoint(const logiq::file::FileIdentity &id, std::uint64_t gen,
+                       std::uint64_t offset);
 };
 
 } // namespace logiq::core

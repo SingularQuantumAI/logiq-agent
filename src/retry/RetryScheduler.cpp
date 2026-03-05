@@ -1,4 +1,5 @@
 #include "retry/RetryScheduler.hpp"
+#include "utils/Logger.hpp"
 
 #include <algorithm>
 
@@ -38,6 +39,10 @@ bool RetryScheduler::enqueue(logiq::Batch batch, const std::string &error) {
 
   if (q_.size() >= policy_.max_queue_batches) {
     // Drop oldest to keep bounded memory (you can change policy later)
+    logiq::utils::Logger::error(
+        "Retry queue full! Dropping oldest batch (id=" +
+        q_.front().batch.batch_id +
+        "). Data will be lost. Consider increasing max_queue_batches.");
     q_.pop_front();
   }
 

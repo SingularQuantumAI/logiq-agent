@@ -110,18 +110,7 @@ void Agent::run_once() {
             std::max(committed_offset_, ready->batch.commit_end_offset);
         committed_generation_ = cur_gen;
 
-        try {
-          logiq::checkpoint::Checkpoint cp;
-          cp.file_id = cur_id;
-          cp.generation = committed_generation_;
-          cp.committed_offset = committed_offset_;
-          checkpoint_store_.save(cp);
-        } catch (const std::exception &ex) {
-          logiq::utils::Logger::warn(
-              std::string(
-                  "Failed to persist checkpoint after retry success: ") +
-              ex.what());
-        }
+        save_checkpoint(cur_id, committed_generation_, committed_offset_);
       }
 
       retry_.on_success();
@@ -150,18 +139,7 @@ void Agent::run_once() {
         committed_offset_ = std::max(committed_offset_, b->commit_end_offset);
         committed_generation_ = cur_gen;
 
-        try {
-          logiq::checkpoint::Checkpoint cp;
-          cp.file_id = cur_id;
-          cp.generation = committed_generation_;
-          cp.committed_offset = committed_offset_;
-          checkpoint_store_.save(cp);
-        } catch (const std::exception &ex) {
-          logiq::utils::Logger::warn(
-              std::string(
-                  "Failed to persist checkpoint after time flush ACK: ") +
-              ex.what());
-        }
+        save_checkpoint(cur_id, committed_generation_, committed_offset_);
       }
     } else {
       retry_.enqueue(std::move(*b), result.message);
@@ -184,17 +162,8 @@ void Agent::run_once() {
     committed_generation_ = follower_.generation();
 
     // Persist reset checkpoint (optional but recommended).
-    try {
-      logiq::checkpoint::Checkpoint cp;
-      cp.file_id = follower_.active_id();
-      cp.generation = committed_generation_;
-      cp.committed_offset = committed_offset_;
-      checkpoint_store_.save(cp);
-    } catch (const std::exception &ex) {
-      logiq::utils::Logger::warn(
-          std::string("Failed to persist checkpoint after truncate: ") +
-          ex.what());
-    }
+    save_checkpoint(follower_.active_id(), committed_generation_,
+                    committed_offset_);
   }
 
   // Switching to a new inode at the same path -> start at 0 for the new file.
@@ -204,17 +173,8 @@ void Agent::run_once() {
     committed_offset_ = 0;
     committed_generation_ = follower_.generation();
 
-    try {
-      logiq::checkpoint::Checkpoint cp;
-      cp.file_id = follower_.active_id();
-      cp.generation = committed_generation_;
-      cp.committed_offset = committed_offset_;
-      checkpoint_store_.save(cp);
-    } catch (const std::exception &ex) {
-      logiq::utils::Logger::warn(
-          std::string("Failed to persist checkpoint after switch: ") +
-          ex.what());
-    }
+    save_checkpoint(follower_.active_id(), committed_generation_,
+                    committed_offset_);
   }
   if (poll.truncated || poll.switched) {
     batcher_.reset(follower_.active_id(), follower_.generation());
@@ -270,18 +230,7 @@ void Agent::run_once() {
                 std::max(committed_offset_, b->commit_end_offset);
             committed_generation_ = cur_gen;
 
-            try {
-              logiq::checkpoint::Checkpoint cp;
-              cp.file_id = cur_id;
-              cp.generation = committed_generation_;
-              cp.committed_offset = committed_offset_;
-              checkpoint_store_.save(cp);
-            } catch (const std::exception &ex) {
-              logiq::utils::Logger::warn(
-                  std::string(
-                      "Failed to persist checkpoint after forced flush ACK: ") +
-                  ex.what());
-            }
+            save_checkpoint(cur_id, committed_generation_, committed_offset_);
           }
         } else {
           retry_.enqueue(std::move(*b), result.message);
@@ -313,18 +262,7 @@ void Agent::run_once() {
         committed_offset_ = std::max(committed_offset_, b->commit_end_offset);
         committed_generation_ = cur_gen;
 
-        try {
-          logiq::checkpoint::Checkpoint cp;
-          cp.file_id = cur_id;
-          cp.generation = committed_generation_;
-          cp.committed_offset = committed_offset_;
-          checkpoint_store_.save(cp);
-        } catch (const std::exception &ex) {
-          logiq::utils::Logger::warn(
-              std::string(
-                  "Failed to persist checkpoint after batch flush ACK: ") +
-              ex.what());
-        }
+        save_checkpoint(cur_id, committed_generation_, committed_offset_);
       }
     } else {
       retry_.enqueue(std::move(*b), result.message);
@@ -333,5 +271,19 @@ void Agent::run_once() {
 }
 
 void Agent::shutdown() { logiq::utils::Logger::info("Agent shutdown."); }
+
+void Agent::save_checkpoint(const logiq::file::FileIdentity &id,
+                            std::uint64_t gen, std::uint64_t offset) {
+  try {
+    logiq::checkpoint::Checkpoint cp;
+    cp.file_id = id;
+    cp.generation = gen;
+    cp.committed_offset = offset;
+    checkpoint_store_.save(cp);
+  } catch (const std::exception &ex) {
+    logiq::utils::Logger::warn(std::string("Failed to persist checkpoint: ") +
+                               ex.what());
+  }
+}
 
 } // namespace logiq::core
