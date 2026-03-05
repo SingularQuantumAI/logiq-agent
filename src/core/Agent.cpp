@@ -271,7 +271,41 @@ void Agent::run_once() {
   }
 }
 
-void Agent::shutdown() { logiq::utils::Logger::info("Agent shutdown."); }
+void Agent::shutdown() {
+  logiq::utils::Logger::info(
+      "Agent shutdown started. Flushing pending data...");
+
+  if (auto b = batcher_.maybe_flush(true)) {
+    b->batch_id = next_batch_id();
+    logiq::utils::Logger::info("Flushing final batch: " + b->batch_id);
+
+    auto result = sink_.send(*b);
+
+    if (result.ok) {
+      const auto cur_id = follower_.active_id();
+      const auto cur_gen = follower_.generation();
+
+      if (b->file_dev == cur_id.dev && b->file_ino == cur_id.ino &&
+          b->file_generation == cur_gen) {
+
+        committed_offset_ = std::max(committed_offset_, b->commit_end_offset);
+        committed_generation_ = cur_gen;
+
+        save_checkpoint(cur_id, committed_generation_, committed_offset_);
+        logiq::utils::Logger::info("Final batch flushed and checkpoint saved.");
+      }
+    } else {
+      logiq::utils::Logger::error(
+          "Failed to flush final batch during shutdown: " + result.message);
+      retry_.enqueue(std::move(*b), result.message);
+      // Depending on graceful wait timeouts, you could try to drain the retry
+      // queue here. For now we just enqueue it (though it won't be retried
+      // unless we save the retry queue to disk later).
+    }
+  }
+
+  logiq::utils::Logger::info("Agent shutdown complete.");
+}
 
 void Agent::save_checkpoint(const logiq::file::FileIdentity &id,
                             std::uint64_t gen, std::uint64_t offset) {
