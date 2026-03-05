@@ -167,6 +167,8 @@ void Agent::run_once() {
       b->batch_id = next_batch_id();
       auto result = sink_.send(*b);
       if (!result.ok) {
+        logiq::utils::Logger::warn("Rotation flush failed. Queuing old batch "
+                                   "for retry (checkpoint will advance).");
         if (!retry_.enqueue(std::move(*b), result.message)) {
           logiq::utils::Logger::error(
               "Failed to enqueue final batch on rotation.");
