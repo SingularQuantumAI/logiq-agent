@@ -84,6 +84,11 @@ bool Agent::initialize() {
   } catch (const std::exception &ex) {
     logiq::utils::Logger::warn(std::string("Failed to load checkpoint: ") +
                                ex.what());
+    // Fallback: If checkpoint is corrupt but we have a file, reset batcher
+    // to start fresh at offset 0.
+    if (follower_.has_fd()) {
+      batcher_.reset(follower_.active_id(), follower_.generation());
+    }
   }
 
   logiq::utils::Logger::info("Agent initialized.");
