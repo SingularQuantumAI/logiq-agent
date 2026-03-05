@@ -15,7 +15,6 @@ HttpNdjsonSink::HttpNdjsonSink(Config cfg) : cfg_(std::move(cfg)) {
     struct curl_slist *headers = nullptr;
     headers = curl_slist_append(headers, "Content-Type: application/x-ndjson");
     headers = curl_slist_append(headers, "Accept: application/json");
-    headers = curl_slist_append(headers, "Connection: keep-alive");
     headers_ = headers;
   } else {
     logiq::utils::Logger::warn("HttpNdjsonSink: failed to init curl target " +
@@ -102,6 +101,11 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   // leaking into this one. Keep-alive connection pool is still maintained by
   // the handle.
   curl_easy_reset(curl);
+
+  // Enable native TCP keep-alive and force HTTP/1.1 to maximize connection
+  // reuse since HTTP/2 multiplexing is not used dynamically yet.
+  curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+  curl_easy_setopt(curl, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
 
   std::string response_body;
   long http_code = 0;
