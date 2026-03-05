@@ -37,6 +37,15 @@ add_executable(logiq-agent
 
     # Utils
     src/utils/Logger.cpp
+
+    # Checkpoint
+    src/checkpoint/CheckpointStore.cpp
+
+    # Retry
+    src/retry/RetryScheduler.cpp
+
+    # Batching
+    src/batching/BatchBuilder.cpp
 )
 
 # ---------------------------------------------------------
@@ -45,6 +54,11 @@ add_executable(logiq-agent
 target_include_directories(logiq-agent PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
+# ---------------------------------------------------------
+# Include CURL
+# ---------------------------------------------------------
+find_package(CURL REQUIRED)
+target_link_libraries(logiq-agent PRIVATE CURL::libcurl)
 
 # ---------------------------------------------------------
 # Compiler warnings (recommended)

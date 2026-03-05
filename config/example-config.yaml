@@ -3,3 +3,11 @@
 logging.level: debug
 input.path: logs.log
 checkpoint.path: checkpoint.json
+retry.max_attempts: 10
+retry.base_delay_ms: 200
+retry.max_delay_ms: 10000
+retry.jitter_ms: 250
+retry.max_queue_batches: 256
+batching.max_records: 1000
+batching.max_bytes: 300
+batching.flush_interval_ms: 2000

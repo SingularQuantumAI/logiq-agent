@@ -1,7 +1,11 @@
 // File: src/sinks/HttpNdjsonSink.cpp
-#include "HttpNdjsonSink.hpp"
+#include "sinks/HttpNdjsonSink.hpp"
+#include "utils/Logger.hpp"
+
+#include <curl/curl.h>
 
 #include <sstream>
+#include <string>
 
 namespace logiq::sinks {
 
@@ -10,14 +14,13 @@ HttpNdjsonSink::HttpNdjsonSink(Config cfg) : cfg_(std::move(cfg)) {}
 std::string HttpNdjsonSink::to_ndjson(const logiq::Batch &batch) {
   std::ostringstream out;
 
-  // NOTE: This is intentionally minimal and not a full JSON implementation.
-  // Replace with a proper JSON library later if needed.
+  // NOTE: Minimal JSON building. Replace with a proper JSON library later.
   for (const auto &r : batch.records) {
     out << "{";
     out << "\"ts_ingest_agent_ns\":" << r.ts_ingest_agent_ns << ",";
     out << "\"payload\":\"";
 
-    // Very naive escaping (placeholder). Replace with proper escaping.
+    // Naive escaping (OK for MVP; upgrade later)
     for (char c : r.payload) {
       if (c == '\\' || c == '"')
         out << '\\';
@@ -41,7 +44,6 @@ std::string HttpNdjsonSink::to_ndjson(const logiq::Batch &batch) {
         if (!first)
           out << ",";
         first = false;
-
         out << "\"" << k << "\":\"" << v << "\"";
       }
       out << "}";
@@ -53,32 +55,84 @@ std::string HttpNdjsonSink::to_ndjson(const logiq::Batch &batch) {
   return out.str();
 }
 
-logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
-  // Placeholder logic:
-  // - build NDJSON payload
-  // - pretend to send it
-  // Integrate libcurl (or another HTTP client) later.
+static size_t write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+  auto *s = static_cast<std::string *>(userdata);
+  const size_t total = size * nmemb;
+  s->append(ptr, total);
+  return total;
+}
 
+logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   if (cfg_.url.empty()) {
     return {false, 0, "HttpNdjsonSink: url is empty.", std::nullopt};
   }
 
-  const auto payload = to_ndjson(batch);
+  const std::string payload = to_ndjson(batch);
 
-  // TODO: perform real HTTP POST to cfg_.url with payload (Content-Type:
-  // application/x-ndjson). For now, pretend it succeeded.
-  (void)payload;
+  CURL *curl = curl_easy_init();
+  if (!curl) {
+    return {false, 0, "HttpNdjsonSink: curl_easy_init failed.", std::nullopt};
+  }
+
+  // Headers
+  struct curl_slist *headers = nullptr;
+  headers = curl_slist_append(headers, "Content-Type: application/x-ndjson");
+  headers = curl_slist_append(headers, "Accept: application/json");
+
+  std::string response_body;
+  long http_code = 0;
+
+  curl_easy_setopt(curl, CURLOPT_URL, cfg_.url.c_str());
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
+                   static_cast<long>(payload.size()));
+
+  // Timeouts
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, cfg_.timeout_ms);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, cfg_.timeout_ms);
+
+  // Response capture (useful for debugging)
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+
+  // Good defaults
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+
+  const CURLcode rc = curl_easy_perform(curl);
+  if (rc == CURLE_OK) {
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+  }
+
+  curl_slist_free_all(headers);
+  curl_easy_cleanup(curl);
+
+  if (rc != CURLE_OK) {
+    return {false, 0,
+            std::string("HttpNdjsonSink: curl error: ") +
+                curl_easy_strerror(rc),
+            std::nullopt};
+  }
 
   logiq::SendResult res;
-  res.ok = true;
-  res.http_status = 200;
-  res.message = "OK (stub)";
+  res.http_status = static_cast<int>(http_code);
 
-  // Commit decision:
-  // If you trust HTTP 200 means the receiver durably stored the batch, provide
-  // commit_end_offset.
-  if (cfg_.assume_durable_on_200) {
-    res.commit_end_offset = batch.commit_end_offset;
+  // Treat any 2xx as success
+  const bool ok = (http_code >= 200 && http_code < 300);
+  res.ok = ok;
+
+  if (ok) {
+    res.message = "OK";
+    if (cfg_.assume_durable_on_200) {
+      res.commit_end_offset = batch.commit_end_offset;
+    }
+  } else {
+    // Include a small response preview for debugging
+    std::string preview = response_body;
+    if (preview.size() > 300)
+      preview.resize(300);
+    res.message = "HTTP " + std::to_string(http_code) + " response: " + preview;
   }
 
   return res;

@@ -38,6 +38,10 @@ struct PollResult {
 
 class FileFollower {
 public:
+  // Set the starting position after opening the file.
+  // This is used on startup to resume from a persisted checkpoint.
+  // Returns false if no fd is open or seek fails.
+  bool set_position(std::uint64_t offset, std::uint64_t generation);
   struct Options {
     std::chrono::milliseconds poll_interval{200};
     std::chrono::milliseconds rotate_settle_time{

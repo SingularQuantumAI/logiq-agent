@@ -115,6 +115,43 @@ void ConfigLoader::apply_kv(Config &cfg, const std::string &key,
     return;
   }
 
+  // Retry
+  if (key == "retry.max_attempts") {
+    cfg.retry.max_attempts = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "retry.base_delay_ms") {
+    cfg.retry.base_delay_ms = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "retry.max_delay_ms") {
+    cfg.retry.max_delay_ms = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "retry.jitter_ms") {
+    cfg.retry.jitter_ms = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "retry.max_queue_batches") {
+    cfg.retry.max_queue_batches = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+
+  // Batching
+  if (key == "batching.max_records") {
+    cfg.batching.max_records = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "batching.max_bytes") {
+    cfg.batching.max_bytes = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "batching.flush_interval_ms") {
+    cfg.batching.flush_interval_ms =
+        static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+
   // Unknown keys are ignored for forward compatibility.
   // You can switch this to "throw" if you prefer strict configs.
 }
