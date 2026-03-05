@@ -245,7 +245,12 @@ void Agent::run_once() {
       }
 
       // Now push again (move on retry)
-      batcher_.push(std::move(rec));
+      if (!batcher_.push(std::move(rec))) {
+        logiq::utils::Logger::error(
+            "Record rejected even after flush! Likely oversized. "
+            "Data dropped at offset: " +
+            std::to_string(rec.start_offset));
+      }
     } else {
       // If first push used copy, rec is still valid; nothing else.
     }
