@@ -159,19 +159,11 @@ void Agent::run_once() {
   if (poll.truncated) {
     framer_.reset();
 
-    // Flush BEFORE overwriting state. The batch carries its own identity
-    // (file_dev/ino/generation) so we use that for the checkpoint instead of
-    // follower_.active_id(), which may already reflect the post-reset state.
+    // Flush BEFORE overwriting state.
     if (auto b = batcher_.maybe_flush(true)) {
       b->batch_id = next_batch_id();
       auto result = sink_.send(*b);
-      if (result.ok) {
-        // Use the identity embedded in the batch, not follower_ state.
-        logiq::file::FileIdentity old_id;
-        old_id.dev = b->file_dev;
-        old_id.ino = b->file_ino;
-        save_checkpoint(old_id, b->file_generation, b->commit_end_offset);
-      } else {
+      if (!result.ok) {
         retry_.enqueue(std::move(*b), result.message);
       }
     }
@@ -190,12 +182,7 @@ void Agent::run_once() {
     if (auto b = batcher_.maybe_flush(true)) {
       b->batch_id = next_batch_id();
       auto result = sink_.send(*b);
-      if (result.ok) {
-        logiq::file::FileIdentity old_id;
-        old_id.dev = b->file_dev;
-        old_id.ino = b->file_ino;
-        save_checkpoint(old_id, b->file_generation, b->commit_end_offset);
-      } else {
+      if (!result.ok) {
         retry_.enqueue(std::move(*b), result.message);
       }
     }
