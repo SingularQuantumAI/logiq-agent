@@ -50,9 +50,6 @@ bool Agent::initialize() {
 
   // Load checkpoint (if any) and resume only if it matches the current file
   // identity.
-  if (follower_.has_fd()) {
-    batcher_.reset(follower_.active_id(), follower_.generation());
-  }
   try {
     auto cp_opt = checkpoint_store_.load();
     if (cp_opt && follower_.has_fd()) {
@@ -64,6 +61,9 @@ bool Agent::initialize() {
         committed_offset_ = cp.committed_offset;
         committed_generation_ = cp.generation;
 
+        // Reset batcher now that we know the true generation.
+        batcher_.reset(follower_.active_id(), follower_.generation());
+
         logiq::utils::Logger::info(
             "Checkpoint loaded. Resuming at committed_offset=" +
             std::to_string(committed_offset_) +
@@ -73,7 +73,13 @@ bool Agent::initialize() {
         committed_generation_ = follower_.generation();
         logiq::utils::Logger::warn("Checkpoint file_id does not match current "
                                    "path inode. Starting from 0.");
+
+        // Reset batcher with initial 0 generation if checkpoint doesn't match
+        batcher_.reset(follower_.active_id(), follower_.generation());
       }
+    } else if (follower_.has_fd()) {
+      // No checkpoint found for this file.
+      batcher_.reset(follower_.active_id(), follower_.generation());
     }
   } catch (const std::exception &ex) {
     logiq::utils::Logger::warn(std::string("Failed to load checkpoint: ") +
@@ -154,46 +160,28 @@ void Agent::run_once() {
   // ---------------------------------------------------------
   auto poll = follower_.poll(committed_offset_);
 
-  // Truncate means same inode but size shrank -> new generation and offset must
-  // reset.
-  if (poll.truncated) {
-    framer_.reset();
-
-    // Flush BEFORE overwriting state.
-    if (auto b = batcher_.maybe_flush(true)) {
-      b->batch_id = next_batch_id();
-      auto result = sink_.send(*b);
-      if (!result.ok) {
-        retry_.enqueue(std::move(*b), result.message);
-      }
-    }
-
-    committed_offset_ = 0;
-    committed_generation_ = follower_.generation();
-    save_checkpoint(follower_.active_id(), committed_generation_,
-                    committed_offset_);
-  }
-
-  // Switching to a new inode at the same path -> start at 0 for the new file.
-  if (poll.switched) {
-    framer_.reset();
-
-    // Same as truncate: flush with old identity BEFORE resetting state.
-    if (auto b = batcher_.maybe_flush(true)) {
-      b->batch_id = next_batch_id();
-      auto result = sink_.send(*b);
-      if (!result.ok) {
-        retry_.enqueue(std::move(*b), result.message);
-      }
-    }
-
-    committed_offset_ = 0;
-    committed_generation_ = follower_.generation();
-    save_checkpoint(follower_.active_id(), committed_generation_,
-                    committed_offset_);
-  }
-
+  // If the file was rotated or truncated, we must reset state.
   if (poll.truncated || poll.switched) {
+    // Flush BEFORE overwriting state or resetting framer.
+    // The batch carries its own identity (file_dev/ino/generation).
+    if (auto b = batcher_.maybe_flush(true)) {
+      b->batch_id = next_batch_id();
+      auto result = sink_.send(*b);
+      if (!result.ok) {
+        if (!retry_.enqueue(std::move(*b), result.message)) {
+          logiq::utils::Logger::error(
+              "Failed to enqueue final batch on rotation.");
+        }
+      }
+    }
+
+    framer_.reset();
+    committed_offset_ = 0;
+    committed_generation_ = follower_.generation();
+
+    save_checkpoint(follower_.active_id(), committed_generation_,
+                    committed_offset_);
+
     batcher_.reset(follower_.active_id(), follower_.generation());
   }
 
@@ -250,7 +238,9 @@ void Agent::run_once() {
             save_checkpoint(cur_id, committed_generation_, committed_offset_);
           }
         } else {
-          retry_.enqueue(std::move(*b), result.message);
+          if (!retry_.enqueue(std::move(*b), result.message)) {
+            logiq::utils::Logger::error("Failed to enqueue failed batch.");
+          }
         }
       }
 
@@ -282,7 +272,9 @@ void Agent::run_once() {
         save_checkpoint(cur_id, committed_generation_, committed_offset_);
       }
     } else {
-      retry_.enqueue(std::move(*b), result.message);
+      if (!retry_.enqueue(std::move(*b), result.message)) {
+        logiq::utils::Logger::error("Failed to enqueue failed batch.");
+      }
     }
   }
 }
@@ -313,10 +305,9 @@ void Agent::shutdown() {
     } else {
       logiq::utils::Logger::error(
           "Failed to flush final batch during shutdown: " + result.message);
-      retry_.enqueue(std::move(*b), result.message);
-      // Depending on graceful wait timeouts, you could try to drain the retry
-      // queue here. For now we just enqueue it (though it won't be retried
-      // unless we save the retry queue to disk later).
+      if (!retry_.enqueue(std::move(*b), result.message)) {
+        logiq::utils::Logger::error("Failed to enqueue failed shutdown batch.");
+      }
     }
   }
 
