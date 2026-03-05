@@ -9,7 +9,30 @@
 
 namespace logiq::sinks {
 
-HttpNdjsonSink::HttpNdjsonSink(Config cfg) : cfg_(std::move(cfg)) {}
+HttpNdjsonSink::HttpNdjsonSink(Config cfg) : cfg_(std::move(cfg)) {
+  curl_ = curl_easy_init();
+  if (curl_) {
+    struct curl_slist *headers = nullptr;
+    headers = curl_slist_append(headers, "Content-Type: application/x-ndjson");
+    headers = curl_slist_append(headers, "Accept: application/json");
+    headers = curl_slist_append(headers, "Connection: keep-alive");
+    headers_ = headers;
+  } else {
+    logiq::utils::Logger::warn("HttpNdjsonSink: failed to init curl target " +
+                               cfg_.url);
+  }
+}
+
+HttpNdjsonSink::~HttpNdjsonSink() {
+  if (headers_) {
+    curl_slist_free_all(static_cast<struct curl_slist *>(headers_));
+    headers_ = nullptr;
+  }
+  if (curl_) {
+    curl_easy_cleanup(static_cast<CURL *>(curl_));
+    curl_ = nullptr;
+  }
+}
 
 std::string HttpNdjsonSink::to_ndjson(const logiq::Batch &batch) {
   std::ostringstream out;
@@ -67,17 +90,18 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
     return {false, 0, "HttpNdjsonSink: url is empty.", std::nullopt};
   }
 
-  const std::string payload = to_ndjson(batch);
-
-  CURL *curl = curl_easy_init();
-  if (!curl) {
-    return {false, 0, "HttpNdjsonSink: curl_easy_init failed.", std::nullopt};
+  if (!curl_) {
+    return {false, 0, "HttpNdjsonSink: curl not initialized.", std::nullopt};
   }
 
-  // Headers
-  struct curl_slist *headers = nullptr;
-  headers = curl_slist_append(headers, "Content-Type: application/x-ndjson");
-  headers = curl_slist_append(headers, "Accept: application/json");
+  const std::string payload = to_ndjson(batch);
+  CURL *curl = static_cast<CURL *>(curl_);
+  struct curl_slist *headers = static_cast<struct curl_slist *>(headers_);
+
+  // Reset the handle's state to prevent options from a previous request from
+  // leaking into this one. Keep-alive connection pool is still maintained by
+  // the handle.
+  curl_easy_reset(curl);
 
   std::string response_body;
   long http_code = 0;
@@ -103,12 +127,7 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   const CURLcode rc = curl_easy_perform(curl);
   if (rc == CURLE_OK) {
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-  }
-
-  curl_slist_free_all(headers);
-  curl_easy_cleanup(curl);
-
-  if (rc != CURLE_OK) {
+  } else {
     return {false, 0,
             std::string("HttpNdjsonSink: curl error: ") +
                 curl_easy_strerror(rc),
