@@ -119,7 +119,7 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
 
   // Timeouts
   curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, cfg_.timeout_ms);
-  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, cfg_.timeout_ms);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS, cfg_.connect_timeout_ms);
 
   // Response capture (useful for debugging)
   curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);

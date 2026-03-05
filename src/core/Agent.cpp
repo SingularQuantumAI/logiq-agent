@@ -24,10 +24,11 @@ Agent::Agent(const logiq::config::Config &config)
     : config_(config), follower_(config.input_path),
       sink_({
           .name = "primary",
-          // TODO: move sink URL to Config (for now keep localhost)
-          .url = "http://127.0.0.1:8070/ingest",
-          .timeout_ms = 2000,
-          .assume_durable_on_200 = true,
+          .url = config.http.url,
+          .timeout_ms = static_cast<int>(config.http.timeout_ms),
+          .connect_timeout_ms =
+              static_cast<int>(config.http.connect_timeout_ms),
+          .assume_durable_on_200 = config.http.assume_durable_on_200,
       }),
       checkpoint_store_(config.checkpoint_path),
       retry_(logiq::retry::RetryPolicy{

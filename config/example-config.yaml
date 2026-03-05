@@ -1,8 +1,13 @@
 # LogIQ Agent minimal config
 
 logging.level: debug
-input.path: logs.log
-checkpoint.path: checkpoint.json
+input_path: logs.log
+checkpoint_path: checkpoint.json
+
+http.url: http://127.0.0.1:8070/ingest
+http.timeout_ms: 2000
+http.connect_timeout_ms: 2000
+
 retry.max_attempts: 10
 retry.base_delay_ms: 200
 retry.max_delay_ms: 10000

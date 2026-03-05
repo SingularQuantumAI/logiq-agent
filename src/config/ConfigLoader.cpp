@@ -137,6 +137,20 @@ void ConfigLoader::apply_kv(Config &cfg, const std::string &key,
     return;
   }
 
+  // HTTP
+  if (key == "http.url") {
+    cfg.http.url = value;
+    return;
+  }
+  if (key == "http.timeout_ms") {
+    cfg.http.timeout_ms = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+  if (key == "http.connect_timeout_ms") {
+    cfg.http.connect_timeout_ms = static_cast<std::uint32_t>(std::stoul(value));
+    return;
+  }
+
   // Batching
   if (key == "batching.max_records") {
     cfg.batching.max_records = static_cast<std::uint32_t>(std::stoul(value));

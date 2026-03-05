@@ -32,9 +32,17 @@ struct RetryConfig {
   std::uint32_t max_queue_batches{256};
 };
 
+struct HttpConfig {
+  std::string url{"http://127.0.0.1:8070/ingest"};
+  std::uint32_t timeout_ms{2000};
+  std::uint32_t connect_timeout_ms{2000};
+  bool assume_durable_on_200{true};
+};
+
 struct Config {
   LoggingConfig logging;
   BatchingConfig batching;
+  HttpConfig http;
 
   std::string input_path{"logs.log"};
   std::string checkpoint_path{"checkpoint.json"};
