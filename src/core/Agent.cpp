@@ -50,6 +50,7 @@ bool Agent::initialize() {
 
   // Load checkpoint (if any) and resume only if it matches the current file
   // identity.
+  bool batcher_ready = false;
   try {
     auto cp_opt = checkpoint_store_.load();
     if (cp_opt && follower_.has_fd()) {
@@ -61,8 +62,8 @@ bool Agent::initialize() {
         committed_offset_ = cp.committed_offset;
         committed_generation_ = cp.generation;
 
-        // Reset batcher now that we know the true generation.
         batcher_.reset(follower_.active_id(), follower_.generation());
+        batcher_ready = true;
 
         logiq::utils::Logger::info(
             "Checkpoint loaded. Resuming at committed_offset=" +
@@ -73,22 +74,15 @@ bool Agent::initialize() {
         committed_generation_ = follower_.generation();
         logiq::utils::Logger::warn("Checkpoint file_id does not match current "
                                    "path inode. Starting from 0.");
-
-        // Reset batcher with initial 0 generation if checkpoint doesn't match
-        batcher_.reset(follower_.active_id(), follower_.generation());
       }
-    } else if (follower_.has_fd()) {
-      // No checkpoint found for this file.
-      batcher_.reset(follower_.active_id(), follower_.generation());
     }
   } catch (const std::exception &ex) {
     logiq::utils::Logger::warn(std::string("Failed to load checkpoint: ") +
                                ex.what());
-    // Fallback: If checkpoint is corrupt but we have a file, reset batcher
-    // to start fresh at offset 0.
-    if (follower_.has_fd()) {
-      batcher_.reset(follower_.active_id(), follower_.generation());
-    }
+  }
+
+  if (follower_.has_fd() && !batcher_ready) {
+    batcher_.reset(follower_.active_id(), follower_.generation());
   }
 
   logiq::utils::Logger::info("Agent initialized.");
