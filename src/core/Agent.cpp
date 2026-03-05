@@ -159,10 +159,25 @@ void Agent::run_once() {
   if (poll.truncated) {
     framer_.reset();
 
+    // Flush BEFORE overwriting state. The batch carries its own identity
+    // (file_dev/ino/generation) so we use that for the checkpoint instead of
+    // follower_.active_id(), which may already reflect the post-reset state.
+    if (auto b = batcher_.maybe_flush(true)) {
+      b->batch_id = next_batch_id();
+      auto result = sink_.send(*b);
+      if (result.ok) {
+        // Use the identity embedded in the batch, not follower_ state.
+        logiq::file::FileIdentity old_id;
+        old_id.dev = b->file_dev;
+        old_id.ino = b->file_ino;
+        save_checkpoint(old_id, b->file_generation, b->commit_end_offset);
+      } else {
+        retry_.enqueue(std::move(*b), result.message);
+      }
+    }
+
     committed_offset_ = 0;
     committed_generation_ = follower_.generation();
-
-    // Persist reset checkpoint (optional but recommended).
     save_checkpoint(follower_.active_id(), committed_generation_,
                     committed_offset_);
   }
@@ -171,35 +186,27 @@ void Agent::run_once() {
   if (poll.switched) {
     framer_.reset();
 
-    committed_offset_ = 0;
-    committed_generation_ = follower_.generation();
-
-    save_checkpoint(follower_.active_id(), committed_generation_,
-                    committed_offset_);
-  }
-  if (poll.truncated || poll.switched) {
-    // Flush any buffered records that belong to the *old* file state before
-    // resetting the batcher. Without this, those records would be silently
-    // dropped when batcher_.reset() discards the current batch.
+    // Same as truncate: flush with old identity BEFORE resetting state.
     if (auto b = batcher_.maybe_flush(true)) {
       b->batch_id = next_batch_id();
       auto result = sink_.send(*b);
-
       if (result.ok) {
-        const auto cur_id = follower_.active_id();
-        const auto cur_gen = follower_.generation();
-
-        if (b->file_dev == cur_id.dev && b->file_ino == cur_id.ino &&
-            b->file_generation == cur_gen) {
-          committed_offset_ = std::max(committed_offset_, b->commit_end_offset);
-          committed_generation_ = cur_gen;
-          save_checkpoint(cur_id, committed_generation_, committed_offset_);
-        }
+        logiq::file::FileIdentity old_id;
+        old_id.dev = b->file_dev;
+        old_id.ino = b->file_ino;
+        save_checkpoint(old_id, b->file_generation, b->commit_end_offset);
       } else {
         retry_.enqueue(std::move(*b), result.message);
       }
     }
 
+    committed_offset_ = 0;
+    committed_generation_ = follower_.generation();
+    save_checkpoint(follower_.active_id(), committed_generation_,
+                    committed_offset_);
+  }
+
+  if (poll.truncated || poll.switched) {
     batcher_.reset(follower_.active_id(), follower_.generation());
   }
 
