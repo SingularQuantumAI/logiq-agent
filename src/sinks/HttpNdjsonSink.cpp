@@ -113,6 +113,7 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   curl_easy_setopt(curl, CURLOPT_URL, cfg_.url.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
                    static_cast<long>(payload.size()));
 

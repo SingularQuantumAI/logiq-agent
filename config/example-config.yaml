@@ -4,7 +4,7 @@ logging.level: debug
 input_path: logs.log
 checkpoint_path: checkpoint.json
 
-http.url: http://104.167.196.33:8877/ingest/ndjson"
+http.url: http://104.167.196.33:8877/ingest/ndjson
 http.timeout_ms: 2000
 http.connect_timeout_ms: 2000
 
