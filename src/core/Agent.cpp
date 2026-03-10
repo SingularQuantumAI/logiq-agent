@@ -46,6 +46,14 @@ Agent::Agent(const logiq::config::Config &config)
       }) {}
 
 bool Agent::initialize() {
+  logiq::utils::Logger::info("Testing connection to server: " +
+                             config_.http.url);
+  if (sink_.test_connection()) {
+    logiq::utils::Logger::info("Connection test to server successful.");
+  } else {
+    logiq::utils::Logger::warn("Connection test to server failed.");
+  }
+
   follower_.open_if_exists();
 
   // Load checkpoint (if any) and resume only if it matches the current file
@@ -81,7 +89,11 @@ bool Agent::initialize() {
                                ex.what());
   }
 
+  // If we have a file open but we didn't set up the batcher (no checkpoint or
+  // mismatch), initialize clean state explicitly.
   if (follower_.has_fd() && !batcher_ready) {
+    committed_offset_ = 0;
+    committed_generation_ = follower_.generation();
     batcher_.reset(follower_.active_id(), follower_.generation());
   }
 
@@ -128,6 +140,7 @@ void Agent::run_once() {
     // One unit of work per tick keeps the loop stable (no starvation).
     return;
   }
+
   // ---------------------------------------------------------
   // 0.5) Time-based flush even if there is no new data
   // ---------------------------------------------------------
@@ -167,11 +180,12 @@ void Agent::run_once() {
       b->batch_id = next_batch_id();
       auto result = sink_.send(*b);
       if (!result.ok) {
-        logiq::utils::Logger::warn("Rotation flush failed. Queuing old batch "
-                                   "for retry (checkpoint will advance).");
+        logiq::utils::Logger::warn(
+            "Rotation/truncate flush failed. Queuing old batch for retry. "
+            "Checkpoint will reset for the new file state.");
         if (!retry_.enqueue(std::move(*b), result.message)) {
           logiq::utils::Logger::error(
-              "Failed to enqueue final batch on rotation.");
+              "Failed to enqueue final batch on rotation/truncate.");
         }
       }
     }
@@ -206,6 +220,7 @@ void Agent::run_once() {
   auto framed = framer_.drain();
   if (framed.empty())
     return;
+
   // ---------------------------------------------------------
   // 4) Push records into the batcher
   // ---------------------------------------------------------
@@ -246,14 +261,13 @@ void Agent::run_once() {
       }
 
       // Now push again (move on retry)
+      const auto drop_offset = rec.start_offset; // capture BEFORE move
       if (!batcher_.push(std::move(rec))) {
         logiq::utils::Logger::error(
             "Record rejected even after flush! Likely oversized. "
             "Data dropped at offset: " +
-            std::to_string(rec.start_offset));
+            std::to_string(drop_offset));
       }
-    } else {
-      // If first push used copy, rec is still valid; nothing else.
     }
   }
 

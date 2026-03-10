@@ -113,9 +113,12 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   curl_easy_setopt(curl, CURLOPT_URL, cfg_.url.c_str());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
   curl_easy_setopt(curl, CURLOPT_POST, 1L);
-  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload.data());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
                    static_cast<long>(payload.size()));
+
+  logiq::utils::Logger::info("HttpNdjsonSink: Sending payload (" +
+                             std::to_string(payload.size()) +
+                             " bytes): " + payload);
 
   // Timeouts
   curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, cfg_.timeout_ms);
@@ -132,7 +135,12 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   const CURLcode rc = curl_easy_perform(curl);
   if (rc == CURLE_OK) {
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    logiq::utils::Logger::info("HttpNdjsonSink: Received response (HTTP " +
+                               std::to_string(http_code) +
+                               "): " + response_body);
   } else {
+    logiq::utils::Logger::error("HttpNdjsonSink: curl error: " +
+                                std::string(curl_easy_strerror(rc)));
     return {false, 0,
             std::string("HttpNdjsonSink: curl error: ") +
                 curl_easy_strerror(rc),
@@ -160,6 +168,26 @@ logiq::SendResult HttpNdjsonSink::send(const logiq::Batch &batch) noexcept {
   }
 
   return res;
+}
+
+bool HttpNdjsonSink::test_connection() noexcept {
+  if (cfg_.url.empty()) {
+    return false;
+  }
+
+  CURL *test_curl = curl_easy_init();
+  if (!test_curl) {
+    return false;
+  }
+
+  curl_easy_setopt(test_curl, CURLOPT_URL, cfg_.url.c_str());
+  curl_easy_setopt(test_curl, CURLOPT_CONNECT_ONLY, 1L);
+  curl_easy_setopt(test_curl, CURLOPT_TIMEOUT_MS, cfg_.connect_timeout_ms);
+
+  const CURLcode rc = curl_easy_perform(test_curl);
+  curl_easy_cleanup(test_curl);
+
+  return rc == CURLE_OK;
 }
 
 } // namespace logiq::sinks

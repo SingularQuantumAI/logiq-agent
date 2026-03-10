@@ -4,7 +4,7 @@ logging.level: debug
 input_path: logs.log
 checkpoint_path: checkpoint.json
 
-http.url: http://127.0.0.1:8070/ingest
+http.url: http://104.167.196.33:8877/ingest/ndjson"
 http.timeout_ms: 2000
 http.connect_timeout_ms: 2000
 
@@ -13,6 +13,6 @@ retry.base_delay_ms: 200
 retry.max_delay_ms: 10000
 retry.jitter_ms: 250
 retry.max_queue_batches: 256
-batching.max_records: 1000
-batching.max_bytes: 300
+batching.max_records: 5
+batching.max_bytes: 3000
 batching.flush_interval_ms: 2000

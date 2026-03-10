@@ -26,6 +26,7 @@ public:
 
   std::string_view name() const override { return cfg_.name; }
   logiq::SendResult send(const logiq::Batch &batch) noexcept override;
+  bool test_connection() noexcept override;
 
 private:
   Config cfg_;

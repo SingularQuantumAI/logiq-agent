@@ -62,6 +62,9 @@ public:
 
   // Optional: allow a sink to report if it's currently "ready".
   virtual bool is_ready() const noexcept { return true; }
+
+  // Optional: test connection to the sink.
+  virtual bool test_connection() noexcept { return true; }
 };
 
 } // namespace logiq
